@@ -29,6 +29,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                     println!("{}", game);
                     return Ok(());
                 }
+                GameState::Stalemate => {
+                    println!("Game ended in Stalemate!");
+                    println!("{}", game);
+                    return Ok(());
+                }
                 _ => {}
             },
             Err(e) => {

@@ -20,6 +20,7 @@ pub enum Color {
 pub enum GameState {
     Turn(Color),
     Won(Color),
+    Stalemate,
 }
 
 impl Color {
@@ -39,6 +40,8 @@ pub enum PlayError {
     ChipOverflow,
     #[error("game already finished, winner {0:?}")]
     GameOver(Color),
+    #[error("game already ended in stalemate")]
+    Stalemate,
 }
 
 impl Board {
@@ -60,6 +63,9 @@ impl Board {
             GameState::Won(winner) => {
                 return Err(PlayError::GameOver(winner));
             }
+            GameState::Stalemate => {
+                return Err(PlayError::Stalemate);
+            }
         };
 
         let mut chip_loc: Option<(usize, usize)> = None;
@@ -79,14 +85,18 @@ impl Board {
         };
 
         let win = self.compute_win(current_turn, chip_loc);
-        self.state = self.compute_state(win);
+        let full = self.compute_full();
+        self.state = self.compute_state(win, full);
 
         Ok(self.state)
     }
 
-    fn compute_state(&self, win: Option<Color>) -> GameState {
+    fn compute_state(&self, win: Option<Color>, board_full: bool) -> GameState {
         match win {
             None => {
+                if board_full {
+                    return GameState::Stalemate;
+                }
                 let GameState::Turn(color) = self.state else {
                     unreachable!();
                 };
@@ -157,6 +167,17 @@ impl Board {
 
         None
     }
+
+    fn compute_full(&self) -> bool {
+        for row in self.chips.iter() {
+            for chip in row.iter() {
+                if let None = chip {
+                    return false;
+                }
+            }
+        }
+        true
+    }
 }
 
 fn count_length(current_length: &mut i32, turn: Color, chip: Option<Color>) -> bool {
@@ -198,6 +219,9 @@ impl fmt::Display for Board {
             GameState::Won(winner) => {
                 let win_message = format!("Winner: {:?}", winner);
                 output.push_str(win_message.as_str());
+            }
+            GameState::Stalemate => {
+                output.push_str("Stalemate :/");
             }
         }
         write!(f, "{}", output)
