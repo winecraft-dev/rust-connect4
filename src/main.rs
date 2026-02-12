@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             Ok(c) => c,
             Err(_) => {
                 println!("Please enter a number");
-                break;
+                continue;
             }
         };
 
@@ -26,6 +26,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             Ok(state) => match state {
                 GameState::Won(winner) => {
                     println!("{:?} won the game!", winner);
+                    println!("{}", game);
                     return Ok(());
                 }
                 _ => {}
@@ -35,5 +36,4 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
     }
-    Ok(())
 }
