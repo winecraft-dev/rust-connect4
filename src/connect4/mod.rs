@@ -2,11 +2,14 @@ use std::cmp;
 use std::fmt;
 use thiserror::Error;
 
+mod test;
+
 const WIDTH: usize = 7;
 const HEIGHT: usize = 6;
 
 pub struct Board {
     chips: [[Option<Color>; HEIGHT]; WIDTH],
+    moves: (i32, i32),
     state: GameState,
 }
 
@@ -16,7 +19,7 @@ pub enum Color {
     Blue,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum GameState {
     Turn(Color),
     Won(Color),
@@ -44,12 +47,88 @@ pub enum PlayError {
     Stalemate,
 }
 
+#[derive(Debug)]
+pub enum LoadError {
+    InvalidSize,
+    InvalidText,
+    InvalidMoves,
+    NoLastMove,
+    ExtraLastMove,
+}
+
 impl Board {
     pub fn new() -> Board {
         Board {
             chips: [[Option::None; HEIGHT]; WIDTH],
             state: GameState::Turn(Color::Red),
+            moves: (0, 0),
         }
+    }
+
+    pub fn load(layout: &str) -> Result<Board, LoadError> {
+        let mut board = Board::new();
+
+        let rows = layout.split('\n');
+        if rows.count() != HEIGHT {
+            return Err(LoadError::InvalidSize);
+        }
+
+        let mut r_moves: i32 = 0;
+        let mut b_moves: i32 = 0;
+        let mut last_move: Option<(Color, usize, usize)> = None;
+        for (r_inv, row) in layout.split('\n').enumerate() {
+            let r = (HEIGHT - 1) - r_inv;
+            if row.len() != WIDTH {
+                return Err(LoadError::InvalidSize);
+            }
+            for (c, color) in row.chars().into_iter().enumerate() {
+                board.chips[c][r] = match color {
+                    'r' => {
+                        r_moves += 1;
+                        Some(Color::Red)
+                    }
+                    'b' => {
+                        b_moves += 1;
+                        Some(Color::Blue)
+                    }
+                    'R' => {
+                        r_moves += 1;
+                        if last_move.is_some() {
+                            return Err(LoadError::ExtraLastMove);
+                        }
+                        last_move = Some((Color::Red, c, r));
+                        Some(Color::Red)
+                    }
+                    'B' => {
+                        b_moves += 1;
+                        if last_move.is_some() {
+                            return Err(LoadError::ExtraLastMove);
+                        }
+                        last_move = Some((Color::Blue, c, r));
+                        Some(Color::Blue)
+                    }
+                    '.' => None,
+                    _ => return Err(LoadError::InvalidText),
+                };
+            }
+        }
+
+        let move_difference = r_moves.abs_diff(b_moves);
+        if move_difference > 1 {
+            return Err(LoadError::InvalidMoves);
+        }
+        board.moves = (r_moves, b_moves);
+
+        let last_move = match last_move {
+            Some(l) => l,
+            None => return Err(LoadError::NoLastMove),
+        };
+
+        board.state = GameState::Turn(last_move.0);
+        let win = board.compute_win(last_move.0, (last_move.1, last_move.2));
+        board.state = board.compute_state(win);
+
+        Ok(board)
     }
 
     pub fn drop_chip(&mut self, col: usize) -> Result<GameState, PlayError> {
@@ -84,14 +163,19 @@ impl Board {
             return Err(PlayError::ChipOverflow);
         };
 
+        match current_turn {
+            Color::Red => self.moves.0 += 1,
+            Color::Blue => self.moves.1 += 1,
+        }
+
         let win = self.compute_win(current_turn, chip_loc);
-        let full = self.compute_full();
-        self.state = self.compute_state(win, full);
+        self.state = self.compute_state(win);
 
         Ok(self.state)
     }
 
-    fn compute_state(&self, win: Option<Color>, board_full: bool) -> GameState {
+    fn compute_state(&self, win: Option<Color>) -> GameState {
+        let board_full = self.moves.0 + self.moves.1 >= (WIDTH * HEIGHT) as i32;
         match win {
             None => {
                 if board_full {
@@ -167,17 +251,6 @@ impl Board {
 
         None
     }
-
-    fn compute_full(&self) -> bool {
-        for row in self.chips.iter() {
-            for chip in row.iter() {
-                if let None = chip {
-                    return false;
-                }
-            }
-        }
-        true
-    }
 }
 
 fn count_length(current_length: &mut i32, turn: Color, chip: Option<Color>) -> bool {
@@ -201,10 +274,10 @@ impl fmt::Display for Board {
             for col in 0..WIDTH {
                 let slot = self.chips[col][row];
                 match slot {
-                    None => output.push_str("⋅ "),
+                    None => output.push_str("- "),
                     Some(chip) => match chip {
-                        Color::Red => output.push_str("⦿ "),
-                        Color::Blue => output.push_str("○ "),
+                        Color::Red => output.push_str("r "),
+                        Color::Blue => output.push_str("b "),
                     },
                 }
             }
