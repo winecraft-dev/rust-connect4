@@ -1,4 +1,4 @@
-use crate::connect4::{Board, Color, GameState};
+use crate::connect4::{Board, BoardState, Color};
 
 #[test]
 fn test_win_vertical() {
@@ -12,7 +12,7 @@ rb....."#;
     let board = Board::load(layout);
     let board = board.unwrap();
     println!("{board}");
-    assert_eq!(board.state, GameState::Won(Color::Red));
+    assert_eq!(board.state, BoardState::Won(Color::Red));
 }
 
 #[test]
@@ -27,7 +27,7 @@ fn test_win_horizontal() {
     let board = Board::load(layout);
     let board = board.unwrap();
     println!("{board}");
-    assert_eq!(board.state, GameState::Won(Color::Red));
+    assert_eq!(board.state, BoardState::Won(Color::Red));
 }
 
 #[test]
@@ -42,7 +42,7 @@ rbbb..."#;
     let board = Board::load(layout);
     let board = board.unwrap();
     println!("{board}");
-    assert_eq!(board.state, GameState::Won(Color::Red));
+    assert_eq!(board.state, BoardState::Won(Color::Red));
 }
 
 #[test]
@@ -57,5 +57,5 @@ fn test_win_diagonal() {
     let board = Board::load(layout);
     let board = board.unwrap();
     println!("{board}");
-    assert_eq!(board.state, GameState::Won(Color::Red));
+    assert_eq!(board.state, BoardState::Won(Color::Red));
 }

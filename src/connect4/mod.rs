@@ -10,7 +10,7 @@ const HEIGHT: usize = 6;
 pub struct Board {
     chips: [[Option<Color>; HEIGHT]; WIDTH],
     moves: (i32, i32),
-    state: GameState,
+    state: BoardState,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -20,7 +20,7 @@ pub enum Color {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum GameState {
+pub enum BoardState {
     Turn(Color),
     Won(Color),
     Stalemate,
@@ -60,7 +60,7 @@ impl Board {
     pub fn new() -> Board {
         Board {
             chips: [[Option::None; HEIGHT]; WIDTH],
-            state: GameState::Turn(Color::Red),
+            state: BoardState::Turn(Color::Red),
             moves: (0, 0),
         }
     }
@@ -124,25 +124,25 @@ impl Board {
             None => return Err(LoadError::NoLastMove),
         };
 
-        board.state = GameState::Turn(last_move.0);
+        board.state = BoardState::Turn(last_move.0);
         let win = board.compute_win(last_move.0, (last_move.1, last_move.2));
         board.state = board.compute_state(win);
 
         Ok(board)
     }
 
-    pub fn drop_chip(&mut self, col: usize) -> Result<GameState, PlayError> {
+    pub fn drop_chip(&mut self, col: usize) -> Result<BoardState, PlayError> {
         match col {
             0..WIDTH => {}
             _ => return Err(PlayError::OutOfRange),
         };
 
         let current_turn = match self.state {
-            GameState::Turn(c) => c,
-            GameState::Won(winner) => {
+            BoardState::Turn(c) => c,
+            BoardState::Won(winner) => {
                 return Err(PlayError::GameOver(winner));
             }
-            GameState::Stalemate => {
+            BoardState::Stalemate => {
                 return Err(PlayError::Stalemate);
             }
         };
@@ -174,19 +174,19 @@ impl Board {
         Ok(self.state)
     }
 
-    fn compute_state(&self, win: Option<Color>) -> GameState {
+    fn compute_state(&self, win: Option<Color>) -> BoardState {
         let board_full = self.moves.0 + self.moves.1 >= (WIDTH * HEIGHT) as i32;
         match win {
             None => {
                 if board_full {
-                    return GameState::Stalemate;
+                    return BoardState::Stalemate;
                 }
-                let GameState::Turn(color) = self.state else {
+                let BoardState::Turn(color) = self.state else {
                     unreachable!();
                 };
-                GameState::Turn(color.toggle())
+                BoardState::Turn(color.toggle())
             }
-            Some(winner) => GameState::Won(winner),
+            Some(winner) => BoardState::Won(winner),
         }
     }
 
@@ -285,15 +285,15 @@ impl fmt::Display for Board {
         }
         output.push_str("+━━━━━━━━━━━━━━━+\n");
         match self.state {
-            GameState::Turn(current) => {
+            BoardState::Turn(current) => {
                 let turn_message = format!("Turn: {:?}", current);
                 output.push_str(turn_message.as_str());
             }
-            GameState::Won(winner) => {
+            BoardState::Won(winner) => {
                 let win_message = format!("Winner: {:?}", winner);
                 output.push_str(win_message.as_str());
             }
-            GameState::Stalemate => {
+            BoardState::Stalemate => {
                 output.push_str("Stalemate :/");
             }
         }

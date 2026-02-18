@@ -1,44 +1,73 @@
-use crate::connect4::{Board, GameState};
-use std::{error::Error, io};
+use futures_util::{SinkExt, StreamExt, TryFutureExt};
+use game::Game;
+use tokio::sync::mpsc;
+use warp::{Filter, ws, ws::Message};
+
+use crate::connection::Connection;
 
 mod connect4;
+mod connection;
+mod game;
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let mut game = Board::new();
+#[tokio::main]
+async fn main() {
+    let (ic_s, ic_r) = mpsc::channel::<Connection>(1);
+    let mut game = Game::new(ic_r);
 
-    loop {
-        println!("{}", game);
-
-        let mut player_move = String::new();
-        io::stdin()
-            .read_line(&mut player_move)
-            .expect("failed to read stdin");
-        let player_move: usize = match player_move.trim().parse() {
-            Ok(c) => c,
-            Err(_) => {
-                println!("Please enter a number");
-                continue;
-            }
-        };
-
-        let result = game.drop_chip(player_move);
-        match result {
-            Ok(state) => match state {
-                GameState::Won(winner) => {
-                    println!("{:?} won the game!", winner);
-                    println!("{}", game);
-                    return Ok(());
-                }
-                GameState::Stalemate => {
-                    println!("Game ended in Stalemate!");
-                    println!("{}", game);
-                    return Ok(());
-                }
-                _ => {}
-            },
-            Err(e) => {
-                println!("Problem with gameplay, {e:?}");
-            }
+    tokio::task::spawn(async move {
+        loop {
+            game.play().await;
         }
-    }
+    });
+
+    routes(ic_s).await;
+}
+
+async fn routes(ic: mpsc::Sender<Connection>) {
+    let ic_filter = warp::any().map(move || ic.clone());
+
+    let ws_play = warp::path!("play" / String)
+        .and(warp::ws())
+        .and(ic_filter)
+        .map(
+            |username: String, websocket: ws::Ws, ic: mpsc::Sender<Connection>| {
+                websocket.on_upgrade(move |socket| handle_connection(username, socket, ic))
+            },
+        );
+
+    let index = warp::path::end().map(|| warp::reply::html(INDEX_HTML));
+    let routes = index.or(ws_play);
+
+    warp::serve(routes).run(([127, 0, 0, 1], 8080)).await;
+}
+
+const INDEX_HTML: &str = r#"<!DOCTYPE html>
+<h1>Hello world</h1>
+"#;
+
+async fn handle_connection(
+    username: String,
+    socket: ws::WebSocket,
+    incoming_connections: mpsc::Sender<Connection>,
+) {
+    let (im_s, im_r) = mpsc::channel::<Message>(1);
+    let (om_s, mut om_r) = mpsc::channel::<Message>(1);
+
+    let c = Connection::new(username.as_str(), im_r, om_s);
+    incoming_connections.send(c).await.unwrap();
+
+    /*
+    let (mut ws_tx, mut ws_rx) = socket.split();
+
+    tokio::task::spawn(async move {
+        while let Some(msg) = om_r.recv().await {
+            ws_tx
+                .send(msg)
+                .unwrap_or_else(|e| {
+                    eprintln!("websocket send error: {}", e);
+                })
+                .await;
+        }
+    });
+    */
 }
