@@ -15,7 +15,7 @@ async fn main() {
 
     tokio::task::spawn(async move {
         loop {
-            game.play().await;
+            game.step().await;
         }
     });
 
