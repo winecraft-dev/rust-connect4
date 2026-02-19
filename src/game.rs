@@ -1,18 +1,18 @@
 use crate::Connection;
 use crate::connect4::Board;
-use tokio::sync::mpsc;
+use crate::connection::ConnRx;
 
 pub struct Game {
-    incoming_connections: mpsc::Receiver<Connection>,
+    conn_rx: ConnRx,
     connect4: Board,
     red: Option<Connection>,
     blue: Option<Connection>,
 }
 
 impl Game {
-    pub fn new(ic: mpsc::Receiver<Connection>) -> Self {
+    pub fn new(conn_rx: ConnRx) -> Self {
         Self {
-            incoming_connections: ic,
+            conn_rx: conn_rx,
             connect4: Board::new(),
             red: None,
             blue: None,
@@ -20,8 +20,8 @@ impl Game {
     }
 
     pub async fn play(&mut self) {
-        if let Some(conn) = self.incoming_connections.recv().await {
-            println!("Connection received: {:?}", conn);
+        if let Some(conn) = self.conn_rx.recv().await {
+            println!("Connection update! {:?}", conn);
         }
     }
 }
