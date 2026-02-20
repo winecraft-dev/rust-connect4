@@ -1,6 +1,7 @@
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc::{self, error::SendError};
 
+use tokio_util::sync::CancellationToken;
 use warp::{ws::Message, ws::WebSocket};
 
 pub type ConnTx = mpsc::UnboundedSender<ConnectionUpdate>;
@@ -15,35 +16,36 @@ pub enum ConnectionUpdate {
 #[derive(Debug)]
 pub struct Connection {
     pub username: String,
-    recv: mpsc::UnboundedReceiver<Message>,
-    send: mpsc::UnboundedSender<Message>,
+    token: CancellationToken,
+    rx: mpsc::UnboundedReceiver<Message>,
+    tx: mpsc::UnboundedSender<Message>,
 }
 
 impl Connection {
     pub fn send(&mut self, m: Message) -> Result<(), SendError<Message>> {
-        self.send.send(m)
+        self.tx.send(m)
     }
-}
 
-impl Connection {
-    pub fn new(
-        u: &str,
-        r: mpsc::UnboundedReceiver<Message>,
-        s: mpsc::UnboundedSender<Message>,
-    ) -> Self {
-        Connection {
-            username: u.to_string(),
-            recv: r,
-            send: s,
-        }
+    pub async fn recv(&mut self) -> Option<Message> {
+        self.rx.recv().await
+    }
+
+    pub fn close(&mut self) {
+        self.token.cancel();
     }
 }
 
 pub async fn handle_connection(username: String, socket: WebSocket, conn_tx: ConnTx) {
     let (im_tx, im_rx) = mpsc::unbounded_channel::<Message>();
     let (og_tx, mut og_rx) = mpsc::unbounded_channel::<Message>();
+    let token = CancellationToken::new();
 
-    let conn = Connection::new(username.as_str(), im_rx, og_tx);
+    let conn = Connection {
+        username: username.clone(),
+        token: token.clone(),
+        rx: im_rx,
+        tx: og_tx,
+    };
     match conn_tx.send(ConnectionUpdate::Connected(conn)) {
         Err(_) => {
             let _ = socket.close().await;
@@ -54,24 +56,44 @@ pub async fn handle_connection(username: String, socket: WebSocket, conn_tx: Con
 
     let (mut ws_tx, mut ws_rx) = socket.split();
 
+    let og_token = token.child_token();
     tokio::task::spawn(async move {
-        while let Some(message) = og_rx.recv().await {
-            let _ = ws_tx.send(message).await;
+        loop {
+            tokio::select! {
+                _ = og_token.cancelled() => {
+                    let _ = ws_tx.close().await;
+                    break;
+                }
+                Some(message) = og_rx.recv() => {
+                    let _ = ws_tx.send(message).await;
+                }
+            }
         }
-        // thread dies when outgoing messages channel closes
+        // println!("Outgoing Messages loop cancelled");
     });
 
-    while let Some(result) = ws_rx.next().await {
-        let msg = match result {
-            Ok(msg) => msg,
-            Err(e) => {
-                eprintln!("websocket error(username={}): {}", username, e);
+    let im_token = token.child_token();
+    loop {
+        tokio::select! {
+            Some(result) = ws_rx.next() => {
+                let msg = match result {
+                    Ok(msg) => msg,
+                    Err(e) => {
+                        eprintln!("websocket error(username={}): {}", username, e);
+                        break;
+                    }
+                };
+                if im_tx.send(msg).is_err() {
+                    break;
+                };
+            }
+            _ = im_token.cancelled() => {
                 break;
             }
-        };
-        println!("{} sent message: {:?}", username, msg);
+        }
     }
-    // thread dies on disconnect, when websocket receiver closes
+    // println!("Incoming Messages loop cancelled");
 
+    token.cancel();
     let _ = conn_tx.send(ConnectionUpdate::Disconnected(username));
 }

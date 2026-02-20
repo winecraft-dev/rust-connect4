@@ -7,6 +7,7 @@ mod test;
 const WIDTH: usize = 7;
 const HEIGHT: usize = 6;
 
+#[derive(Debug)]
 pub struct Board {
     chips: [[Option<Color>; HEIGHT]; WIDTH],
     moves: (i32, i32),
