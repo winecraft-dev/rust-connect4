@@ -1,12 +1,11 @@
-use std::time::Duration;
-
 use thiserror::Error;
-use tokio::time::sleep;
-use warp::filters::ws::{self, Message};
 
 use crate::Connection;
 use crate::connect4::Board;
 use crate::connection::{ConnRx, ConnectionUpdate};
+use crate::game::message::Message;
+
+pub mod message;
 
 #[derive(Debug)]
 pub enum GameState {
@@ -32,7 +31,7 @@ pub enum GameError {
 pub struct Game {
     state: GameState,
     conn_rx: ConnRx,
-    connect4: Board,
+    board: Board,
     red: Option<Connection>,
     blue: Option<Connection>,
 }
@@ -42,7 +41,7 @@ impl Game {
         Self {
             state: GameState::AwaitingRed,
             conn_rx: conn_rx,
-            connect4: Board::new(),
+            board: Board::new(),
             red: None,
             blue: None,
         }
@@ -102,9 +101,13 @@ impl Game {
         tokio::select! {
             Some(message) = red.recv() => {
                 println!("Red msg: {:?}", message);
+                let board_message = Message::board(&self.board);
+                let _ = red.send(board_message);
             }
             Some(message) = blue.recv() => {
                 println!("Blue msg: {:?}", message);
+                let board_message = Message::board(&self.board);
+                let _ = blue.send(board_message);
             }
             m = self.conn_rx.recv() => {
                 match m {
@@ -121,7 +124,7 @@ impl Game {
     fn play_connection_update(&mut self, cu: ConnectionUpdate) {
         match cu {
             ConnectionUpdate::Connected(mut conn) => {
-                let _ = conn.send(Message::text("Too many players!"));
+                let _ = conn.send(message::Message::TooManyPlayers);
                 conn.close();
             }
             ConnectionUpdate::Disconnected(username) => {

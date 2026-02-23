@@ -1,8 +1,9 @@
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc::{self, error::SendError};
 
+use crate::game::message::Message as GameMessage;
 use tokio_util::sync::CancellationToken;
-use warp::{ws::Message, ws::WebSocket};
+use warp::{ws::Message as WsMessage, ws::WebSocket};
 
 pub type ConnTx = mpsc::UnboundedSender<ConnectionUpdate>;
 pub type ConnRx = mpsc::UnboundedReceiver<ConnectionUpdate>;
@@ -17,16 +18,16 @@ pub enum ConnectionUpdate {
 pub struct Connection {
     pub username: String,
     token: CancellationToken,
-    rx: mpsc::UnboundedReceiver<Message>,
-    tx: mpsc::UnboundedSender<Message>,
+    rx: mpsc::UnboundedReceiver<GameMessage>,
+    tx: mpsc::UnboundedSender<GameMessage>,
 }
 
 impl Connection {
-    pub fn send(&mut self, m: Message) -> Result<(), SendError<Message>> {
+    pub fn send(&mut self, m: GameMessage) -> Result<(), SendError<GameMessage>> {
         self.tx.send(m)
     }
 
-    pub async fn recv(&mut self) -> Option<Message> {
+    pub async fn recv(&mut self) -> Option<GameMessage> {
         self.rx.recv().await
     }
 
@@ -36,9 +37,11 @@ impl Connection {
 }
 
 pub async fn handle_connection(username: String, socket: WebSocket, conn_tx: ConnTx) {
-    let (im_tx, im_rx) = mpsc::unbounded_channel::<Message>();
-    let (og_tx, mut og_rx) = mpsc::unbounded_channel::<Message>();
+    let (im_tx, im_rx) = mpsc::unbounded_channel::<GameMessage>();
+    let (og_tx, mut og_rx) = mpsc::unbounded_channel::<GameMessage>();
     let token = CancellationToken::new();
+
+    let og_tx_2 = og_tx.clone();
 
     let conn = Connection {
         username: username.clone(),
@@ -56,7 +59,7 @@ pub async fn handle_connection(username: String, socket: WebSocket, conn_tx: Con
 
     let (mut ws_tx, mut ws_rx) = socket.split();
 
-    let og_token = token.child_token();
+    let og_token = token.clone();
     tokio::task::spawn(async move {
         loop {
             tokio::select! {
@@ -65,24 +68,51 @@ pub async fn handle_connection(username: String, socket: WebSocket, conn_tx: Con
                     break;
                 }
                 Some(message) = og_rx.recv() => {
-                    let _ = ws_tx.send(message).await;
+                    let text = match serde_json::to_string(&message) {
+                        Ok(t) => t,
+                        Err(e) => {
+                            eprintln!("serde error: {}", e);
+                            continue;
+                        }
+                    };
+                    if let Err(e) = ws_tx.send(WsMessage::text(text)).await {
+                        eprintln!("websocket send error: {}", e);
+                        og_token.cancel();
+                        break;
+                    };
                 }
             }
         }
-        // println!("Outgoing Messages loop cancelled");
+        println!("Outgoing Messages loop cancelled");
     });
 
     let im_token = token.child_token();
     loop {
         tokio::select! {
             Some(result) = ws_rx.next() => {
-                let msg = match result {
-                    Ok(msg) => msg,
+                let raw_msg = match result {
+                    Ok(m) => m,
                     Err(e) => {
-                        eprintln!("websocket error(username={}): {}", username, e);
+                        eprintln!("websocket receive error: {}", e);
                         break;
                     }
                 };
+                let text = match raw_msg.to_str() {
+                    Ok(t) => t,
+                    Err(_) => {
+                        let _ = og_tx_2.send(GameMessage::InvalidFormat);
+                        continue;
+                    }
+                };
+                let msg = match serde_json::from_str::<GameMessage>(text) {
+                    Ok(m) => m,
+                    Err(_) => {
+                        let _ = og_tx_2.send(GameMessage::InvalidFormat);
+                        continue;
+                    }
+                };
+
+
                 if im_tx.send(msg).is_err() {
                     break;
                 };
@@ -92,7 +122,7 @@ pub async fn handle_connection(username: String, socket: WebSocket, conn_tx: Con
             }
         }
     }
-    // println!("Incoming Messages loop cancelled");
+    println!("Incoming Messages loop cancelled");
 
     token.cancel();
     let _ = conn_tx.send(ConnectionUpdate::Disconnected(username));

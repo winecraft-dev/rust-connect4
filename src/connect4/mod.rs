@@ -1,26 +1,36 @@
+use serde::Deserialize;
+use serde::Serialize;
 use std::cmp;
 use std::fmt;
 use thiserror::Error;
+
+use crate::game::message::Message;
 
 mod test;
 
 const WIDTH: usize = 7;
 const HEIGHT: usize = 6;
 
+#[derive(Debug, Default, Serialize, Deserialize, Clone, Copy)]
+pub struct Turn {
+    red: i32,
+    blue: i32,
+}
+
 #[derive(Debug)]
 pub struct Board {
     chips: [[Option<Color>; HEIGHT]; WIDTH],
-    moves: (i32, i32),
+    moves: Turn,
     state: BoardState,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Color {
     Red,
     Blue,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum BoardState {
     Turn(Color),
     Won(Color),
@@ -36,7 +46,17 @@ impl Color {
     }
 }
 
-#[derive(Debug, Error)]
+impl Message {
+    pub fn board(b: &Board) -> Self {
+        Self::Board {
+            state: b.state,
+            moves: b.moves,
+            board: format!("{}", b),
+        }
+    }
+}
+
+#[derive(Debug, Error, Deserialize, Serialize)]
 pub enum PlayError {
     #[error("move outside of board")]
     OutOfRange,
@@ -62,7 +82,7 @@ impl Board {
         Board {
             chips: [[Option::None; HEIGHT]; WIDTH],
             state: BoardState::Turn(Color::Red),
-            moves: (0, 0),
+            moves: Turn::default(),
         }
     }
 
@@ -118,7 +138,10 @@ impl Board {
         if move_difference > 1 {
             return Err(LoadError::InvalidMoves);
         }
-        board.moves = (r_moves, b_moves);
+        board.moves = Turn {
+            red: r_moves,
+            blue: b_moves,
+        };
 
         let last_move = match last_move {
             Some(l) => l,
@@ -165,8 +188,8 @@ impl Board {
         };
 
         match current_turn {
-            Color::Red => self.moves.0 += 1,
-            Color::Blue => self.moves.1 += 1,
+            Color::Red => self.moves.red += 1,
+            Color::Blue => self.moves.blue += 1,
         }
 
         let win = self.compute_win(current_turn, chip_loc);
@@ -176,7 +199,7 @@ impl Board {
     }
 
     fn compute_state(&self, win: Option<Color>) -> BoardState {
-        let board_full = self.moves.0 + self.moves.1 >= (WIDTH * HEIGHT) as i32;
+        let board_full = self.moves.red + self.moves.blue >= (WIDTH * HEIGHT) as i32;
         match win {
             None => {
                 if board_full {
