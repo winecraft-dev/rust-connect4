@@ -17,7 +17,7 @@ pub struct Turn {
     blue: i32,
 }
 
-#[derive(Default, Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Move {
     color: Color,
     row: usize,
@@ -28,7 +28,7 @@ pub struct Move {
 pub struct Board {
     chips: [[Option<Color>; HEIGHT]; WIDTH],
     moves: Turn,
-    last_move: Move,
+    last_move: Option<Move>,
     state: BoardState,
 }
 
@@ -48,8 +48,8 @@ pub enum BoardState {
 
 #[derive(Debug)]
 pub struct DropResult {
-    last_move: Move,
-    state: BoardState,
+    pub last_move: Move,
+    pub state: BoardState,
 }
 
 impl Color {
@@ -62,22 +62,44 @@ impl Color {
 }
 
 impl Message {
-    // calling this function from a non-turn state will panic
-    pub fn moved(b: &Board, last_move: Move) -> Self {
-        let BoardState::Turn(color) = b.state else {
+    pub fn board(b: &Board) -> Self {
+        let BoardState::Turn(turn) = b.state else {
             unreachable!();
         };
-        Self::Moved {
-            turn: color,
-            moves: b.moves,
+        Message::Board {
+            turn: turn,
+            board: format!("{}", b),
+        }
+    }
+
+    pub fn won(b: &Board, winner: Color) -> Self {
+        Message::Won {
+            winner,
+            last_move: b.last_move.unwrap(),
+            board: format!("{}", b),
+        }
+    }
+
+    pub fn stalemate(b: &Board) -> Self {
+        Message::Stalemate {
+            last_move: b.last_move.unwrap(),
+            board: format!("{}", b),
+        }
+    }
+
+    pub fn moved(b: &Board, last_move: Move, mover: Color) -> Self {
+        Message::Moved {
+            last_mover: mover,
             last_move: last_move,
             board: format!("{}", b),
         }
     }
 }
 
-#[derive(Debug, Error, Deserialize, Serialize)]
+#[derive(Clone, Debug, Error, Deserialize, Serialize)]
 pub enum PlayError {
+    #[error("wrong color chip")]
+    WrongColorChip,
     #[error("move outside of board")]
     OutOfRange,
     #[error("too many chips in column")]
@@ -102,11 +124,12 @@ impl Board {
         Board {
             chips: [[Option::None; HEIGHT]; WIDTH],
             state: BoardState::Turn(Color::Red),
-            last_move: Move::default(),
+            last_move: None,
             moves: Turn::default(),
         }
     }
 
+    #[allow(unused)] // used by tests
     pub fn load(layout: &str) -> Result<Board, LoadError> {
         let mut board = Board::new();
 
@@ -177,7 +200,7 @@ impl Board {
             None => return Err(LoadError::NoLastMove),
         };
 
-        board.last_move = last_move;
+        board.last_move = Some(last_move);
         board.state = BoardState::Turn(last_move.color);
         let win = board.compute_win(last_move);
         board.state = board.compute_state(win);
@@ -185,7 +208,7 @@ impl Board {
         Ok(board)
     }
 
-    pub fn drop_chip(&mut self, col: usize) -> Result<BoardState, PlayError> {
+    pub fn drop_chip(&mut self, chip: Color, col: usize) -> Result<DropResult, PlayError> {
         match col {
             0..WIDTH => {}
             _ => return Err(PlayError::OutOfRange),
@@ -200,6 +223,10 @@ impl Board {
                 return Err(PlayError::Stalemate);
             }
         };
+
+        if chip.ne(&current_turn) {
+            return Err(PlayError::WrongColorChip);
+        }
 
         let mut current_move: Option<Move> = None;
         for row in 0..HEIGHT {
@@ -228,9 +255,12 @@ impl Board {
 
         let win = self.compute_win(current_move);
         self.state = self.compute_state(win);
-        self.last_move = current_move;
+        self.last_move = Some(current_move);
 
-        Ok(self.state)
+        Ok(DropResult {
+            last_move: current_move,
+            state: self.state,
+        })
     }
 
     fn compute_state(&self, win: Option<Color>) -> BoardState {

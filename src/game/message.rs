@@ -5,41 +5,36 @@ use crate::{
     game::Game,
 };
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum Message {
     // input
     DropChip {
-        turn: Turn,
         column: usize,
     },
 
     // output
-    InvalidFormat,
     Board {
         turn: Color,
-        moves: Turn,
         board: String,
     },
     Moved {
-        turn: Color,
+        last_mover: Color,
         last_move: Move,
-        moves: Turn,
         board: String,
     },
     Won {
         winner: Color,
         last_move: Move,
-        moves: Turn,
         board: String,
     },
     Stalemate {
         last_move: Move,
-        moves: Turn,
         board: String,
     },
+    InvalidFormat,
+    InvalidMessage,
     InvalidMove(PlayError),
-    WaitYourTurn,
 
     TooManyPlayers,
 }

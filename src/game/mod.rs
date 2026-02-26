@@ -1,7 +1,8 @@
 use thiserror::Error;
+use tokio::sync::mpsc::error::SendError;
 
 use crate::Connection;
-use crate::connect4::{Board, Color};
+use crate::connect4::{Board, BoardState, Color, PlayError};
 use crate::connection::{ConnRx, ConnectionUpdate};
 use crate::game::message::Message;
 
@@ -68,6 +69,7 @@ impl Game {
                 }
                 GameState::AwaitingBlue => {
                     self.blue = Some(conn);
+                    self.broadcast(Message::board(&self.board));
                     GameState::Playing
                 }
                 _ => return Err(GameError::WtfState),
@@ -120,12 +122,45 @@ impl Game {
         &mut self,
         from: Color,
         // conn: &Connection,
-        m: Message,
+        msg: Message,
     ) -> Result<(), GameError> {
         let conn = match from {
             Color::Red => self.red.as_ref().unwrap(),
             Color::Blue => self.blue.as_ref().unwrap(),
         };
+        let column = match msg {
+            Message::DropChip { column } => column,
+            _ => {
+                let invalid_message_msg = Message::InvalidMessage;
+                let _ = conn.send(invalid_message_msg);
+                return Ok(());
+            }
+        };
+        match self.board.drop_chip(from, column) {
+            Ok(drop_res) => {
+                let broadcast_msg = match drop_res.state {
+                    BoardState::Turn(_) => Message::moved(&self.board, drop_res.last_move, from),
+                    // transition to game over state!
+                    BoardState::Won(winner) => Message::won(&self.board, winner),
+                    BoardState::Stalemate => Message::stalemate(&self.board),
+                };
+                let _ = self.broadcast(broadcast_msg);
+            }
+            Err(play_err) => {
+                let feedback_msg = match play_err {
+                    PlayError::GameOver(winner) => Message::won(&self.board, winner),
+                    PlayError::Stalemate => Message::stalemate(&self.board),
+                    play_err => Message::InvalidMove(play_err),
+                };
+                let _ = conn.send(feedback_msg);
+            }
+        };
+        Ok(())
+    }
+
+    fn broadcast(&self, msg: Message) -> Result<(), SendError<Message>> {
+        self.red.as_ref().unwrap().send(msg.clone())?;
+        self.blue.as_ref().unwrap().send(msg.clone())?;
         Ok(())
     }
 

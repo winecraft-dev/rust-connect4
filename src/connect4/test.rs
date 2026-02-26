@@ -1,3 +1,4 @@
+#[allow(unused_imports)]
 use crate::connect4::{Board, BoardState, Color};
 
 #[test]
