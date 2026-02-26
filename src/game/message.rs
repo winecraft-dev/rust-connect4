@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    connect4::{BoardState, PlayError, Turn},
+    connect4::{BoardState, Color, Move, PlayError, Turn},
     game::Game,
 };
 
@@ -17,7 +17,24 @@ pub enum Message {
     // output
     InvalidFormat,
     Board {
-        state: BoardState,
+        turn: Color,
+        moves: Turn,
+        board: String,
+    },
+    Moved {
+        turn: Color,
+        last_move: Move,
+        moves: Turn,
+        board: String,
+    },
+    Won {
+        winner: Color,
+        last_move: Move,
+        moves: Turn,
+        board: String,
+    },
+    Stalemate {
+        last_move: Move,
         moves: Turn,
         board: String,
     },

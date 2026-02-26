@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 use crate::Connection;
-use crate::connect4::Board;
+use crate::connect4::{Board, Color};
 use crate::connection::{ConnRx, ConnectionUpdate};
 use crate::game::message::Message;
 
@@ -95,19 +95,12 @@ impl Game {
     // TODO: every expect should return an error that kills the game loop+program
 
     async fn play(&mut self) -> Result<(), GameError> {
-        let red = self.red.as_mut().expect("impossible");
-        let blue = self.blue.as_mut().expect("impossible");
-
         tokio::select! {
-            Some(message) = red.recv() => {
-                println!("Red msg: {:?}", message);
-                let board_message = Message::board(&self.board);
-                let _ = red.send(board_message);
+            Some(message) = self.red.as_mut().unwrap().recv() => {
+                return self.play_message(Color::Red, message);
             }
-            Some(message) = blue.recv() => {
-                println!("Blue msg: {:?}", message);
-                let board_message = Message::board(&self.board);
-                let _ = blue.send(board_message);
+            Some(message) = self.blue.as_mut().unwrap().recv() => {
+                return self.play_message(Color::Blue, message);
             }
             m = self.conn_rx.recv() => {
                 match m {
@@ -121,6 +114,21 @@ impl Game {
         Ok(())
     }
 
+    // made this function so I wouldn't have to write code inside that select macro
+    // autocompletes are super slow in there
+    fn play_message(
+        &mut self,
+        from: Color,
+        // conn: &Connection,
+        m: Message,
+    ) -> Result<(), GameError> {
+        let conn = match from {
+            Color::Red => self.red.as_ref().unwrap(),
+            Color::Blue => self.blue.as_ref().unwrap(),
+        };
+        Ok(())
+    }
+
     fn play_connection_update(&mut self, cu: ConnectionUpdate) {
         match cu {
             ConnectionUpdate::Connected(mut conn) => {
@@ -128,6 +136,7 @@ impl Game {
                 conn.close();
             }
             ConnectionUpdate::Disconnected(username) => {
+                // handle player disconecting during game
                 println!("{username} disconnected");
             }
         }

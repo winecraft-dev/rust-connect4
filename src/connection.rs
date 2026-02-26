@@ -23,7 +23,7 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub fn send(&mut self, m: GameMessage) -> Result<(), SendError<GameMessage>> {
+    pub fn send(&self, m: GameMessage) -> Result<(), SendError<GameMessage>> {
         self.tx.send(m)
     }
 

@@ -17,15 +17,24 @@ pub struct Turn {
     blue: i32,
 }
 
+#[derive(Default, Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct Move {
+    color: Color,
+    row: usize,
+    col: usize,
+}
+
 #[derive(Debug)]
 pub struct Board {
     chips: [[Option<Color>; HEIGHT]; WIDTH],
     moves: Turn,
+    last_move: Move,
     state: BoardState,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Color {
+    #[default]
     Red,
     Blue,
 }
@@ -35,6 +44,12 @@ pub enum BoardState {
     Turn(Color),
     Won(Color),
     Stalemate,
+}
+
+#[derive(Debug)]
+pub struct DropResult {
+    last_move: Move,
+    state: BoardState,
 }
 
 impl Color {
@@ -47,10 +62,15 @@ impl Color {
 }
 
 impl Message {
-    pub fn board(b: &Board) -> Self {
-        Self::Board {
-            state: b.state,
+    // calling this function from a non-turn state will panic
+    pub fn moved(b: &Board, last_move: Move) -> Self {
+        let BoardState::Turn(color) = b.state else {
+            unreachable!();
+        };
+        Self::Moved {
+            turn: color,
             moves: b.moves,
+            last_move: last_move,
             board: format!("{}", b),
         }
     }
@@ -82,6 +102,7 @@ impl Board {
         Board {
             chips: [[Option::None; HEIGHT]; WIDTH],
             state: BoardState::Turn(Color::Red),
+            last_move: Move::default(),
             moves: Turn::default(),
         }
     }
@@ -96,7 +117,7 @@ impl Board {
 
         let mut r_moves: i32 = 0;
         let mut b_moves: i32 = 0;
-        let mut last_move: Option<(Color, usize, usize)> = None;
+        let mut last_move: Option<Move> = None;
         for (r_inv, row) in layout.split('\n').enumerate() {
             let r = (HEIGHT - 1) - r_inv;
             if row.len() != WIDTH {
@@ -117,7 +138,11 @@ impl Board {
                         if last_move.is_some() {
                             return Err(LoadError::ExtraLastMove);
                         }
-                        last_move = Some((Color::Red, c, r));
+                        last_move = Some(Move {
+                            color: Color::Red,
+                            row: r,
+                            col: c,
+                        });
                         Some(Color::Red)
                     }
                     'B' => {
@@ -125,7 +150,11 @@ impl Board {
                         if last_move.is_some() {
                             return Err(LoadError::ExtraLastMove);
                         }
-                        last_move = Some((Color::Blue, c, r));
+                        last_move = Some(Move {
+                            color: Color::Blue,
+                            row: r,
+                            col: c,
+                        });
                         Some(Color::Blue)
                     }
                     '.' => None,
@@ -148,8 +177,9 @@ impl Board {
             None => return Err(LoadError::NoLastMove),
         };
 
-        board.state = BoardState::Turn(last_move.0);
-        let win = board.compute_win(last_move.0, (last_move.1, last_move.2));
+        board.last_move = last_move;
+        board.state = BoardState::Turn(last_move.color);
+        let win = board.compute_win(last_move);
         board.state = board.compute_state(win);
 
         Ok(board)
@@ -171,19 +201,23 @@ impl Board {
             }
         };
 
-        let mut chip_loc: Option<(usize, usize)> = None;
+        let mut current_move: Option<Move> = None;
         for row in 0..HEIGHT {
             match self.chips[col][row] {
                 None => {
                     self.chips[col][row] = Some(current_turn);
-                    chip_loc = Some((col, row));
+                    current_move = Some(Move {
+                        color: current_turn,
+                        col: col,
+                        row: row,
+                    });
                     break;
                 }
                 Some(_) => {}
             };
         }
 
-        let Some(chip_loc) = chip_loc else {
+        let Some(current_move) = current_move else {
             return Err(PlayError::ChipOverflow);
         };
 
@@ -192,8 +226,9 @@ impl Board {
             Color::Blue => self.moves.blue += 1,
         }
 
-        let win = self.compute_win(current_turn, chip_loc);
+        let win = self.compute_win(current_move);
         self.state = self.compute_state(win);
+        self.last_move = current_move;
 
         Ok(self.state)
     }
@@ -214,8 +249,10 @@ impl Board {
         }
     }
 
-    fn compute_win(&self, turn: Color, loc: (usize, usize)) -> Option<Color> {
-        let (col, row) = loc;
+    fn compute_win(&self, last_move: Move) -> Option<Color> {
+        let turn = last_move.color;
+        let col = last_move.col;
+        let row = last_move.row;
 
         // horizontal
         let mut current_length = 0;
