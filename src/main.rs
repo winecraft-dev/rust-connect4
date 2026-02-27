@@ -1,6 +1,6 @@
 use game::Game;
 use tokio::sync::mpsc;
-use warp::{Filter, ws, ws::Message};
+use warp::{Filter, ws};
 
 use crate::connection::{ConnTx, Connection, ConnectionUpdate};
 
@@ -15,7 +15,7 @@ async fn main() {
 
     tokio::task::spawn(async move {
         loop {
-            game.step().await.expect("Game error");
+            game.step().await.expect("Game error, stopping!");
         }
     });
 
@@ -25,6 +25,8 @@ async fn main() {
 async fn routes(ic_tx: ConnTx) {
     let ic_filter = warp::any().map(move || ic_tx.clone());
 
+    let static_files = warp::get().and(warp::fs::dir("static"));
+
     let ws_play = warp::path!("play" / String)
         .and(warp::ws())
         .and(ic_filter)
@@ -32,12 +34,7 @@ async fn routes(ic_tx: ConnTx) {
             w.on_upgrade(move |socket| connection::handle_connection(username, socket, ic_tx))
         });
 
-    let index = warp::path::end().map(|| warp::reply::html(INDEX_HTML));
-    let routes = index.or(ws_play);
+    let routes = static_files.or(ws_play);
 
     warp::serve(routes).run(([127, 0, 0, 1], 8080)).await;
 }
-
-const INDEX_HTML: &str = r#"<!DOCTYPE html>
-<h1>Hello world</h1>
-"#;

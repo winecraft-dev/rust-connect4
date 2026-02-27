@@ -20,10 +20,8 @@ pub enum GameState {
 pub enum GameError {
     #[error("new connections stopped")]
     ConnectionUpdateClosed,
-    #[error("red player disconnected during play")]
-    RedDisconnected,
-    #[error("blue player disconnected during play")]
-    BlueDisconnected,
+    #[error("a connection closed before notification")]
+    ConnectionError,
     #[error("state became invalid")]
     WtfState,
 }
@@ -69,7 +67,9 @@ impl Game {
                 }
                 GameState::AwaitingBlue => {
                     self.blue = Some(conn);
-                    self.broadcast(Message::board(&self.board));
+                    if let Err(_) = self.broadcast(Message::board(&self.board)) {
+                        return Err(GameError::ConnectionError);
+                    };
                     GameState::Playing
                 }
                 _ => return Err(GameError::WtfState),
@@ -88,9 +88,11 @@ impl Game {
                 _ => return Err(GameError::WtfState),
             },
         };
-        println!("Game Awaiting...");
-        println!("Red: {:?}", self.red);
-        println!("Blue: {:?}", self.blue);
+        println!(
+            "Game Awaiting... Red: {}, Blue: {}",
+            self.red.is_some(),
+            self.blue.is_some()
+        );
         Ok(())
     }
 
@@ -107,23 +109,15 @@ impl Game {
             m = self.conn_rx.recv() => {
                 match m {
                     None => return Err(GameError::ConnectionUpdateClosed),
-                    Some(cu) => self.play_connection_update(cu),
+                    Some(cu) => return self.play_connection_update(cu),
                 }
             }
         }
-
-        println!("Game playing!");
-        Ok(())
     }
 
     // made this function so I wouldn't have to write code inside that select macro
     // autocompletes are super slow in there
-    fn play_message(
-        &mut self,
-        from: Color,
-        // conn: &Connection,
-        msg: Message,
-    ) -> Result<(), GameError> {
+    fn play_message(&mut self, from: Color, msg: Message) -> Result<(), GameError> {
         let conn = match from {
             Color::Red => self.red.as_ref().unwrap(),
             Color::Blue => self.blue.as_ref().unwrap(),
@@ -132,7 +126,9 @@ impl Game {
             Message::DropChip { column } => column,
             _ => {
                 let invalid_message_msg = Message::InvalidMessage;
-                let _ = conn.send(invalid_message_msg);
+                if let Err(_) = conn.send(invalid_message_msg) {
+                    return Err(GameError::ConnectionError);
+                }
                 return Ok(());
             }
         };
@@ -144,7 +140,9 @@ impl Game {
                     BoardState::Won(winner) => Message::won(&self.board, winner),
                     BoardState::Stalemate => Message::stalemate(&self.board),
                 };
-                let _ = self.broadcast(broadcast_msg);
+                if let Err(_) = self.broadcast(broadcast_msg) {
+                    return Err(GameError::ConnectionError);
+                }
             }
             Err(play_err) => {
                 let feedback_msg = match play_err {
@@ -152,7 +150,9 @@ impl Game {
                     PlayError::Stalemate => Message::stalemate(&self.board),
                     play_err => Message::InvalidMove(play_err),
                 };
-                let _ = conn.send(feedback_msg);
+                if let Err(_) = conn.send(feedback_msg) {
+                    return Err(GameError::ConnectionError);
+                }
             }
         };
         Ok(())
@@ -164,20 +164,29 @@ impl Game {
         Ok(())
     }
 
-    fn play_connection_update(&mut self, cu: ConnectionUpdate) {
+    fn play_connection_update(&mut self, cu: ConnectionUpdate) -> Result<(), GameError> {
         match cu {
             ConnectionUpdate::Connected(mut conn) => {
-                let _ = conn.send(message::Message::TooManyPlayers);
+                if let Err(_) = conn.send(message::Message::TooManyPlayers) {
+                    return Err(GameError::ConnectionError);
+                }
                 conn.close();
             }
             ConnectionUpdate::Disconnected(username) => {
-                // handle player disconecting during game
-                println!("{username} disconnected");
+                let red_disconnected = self.red.as_ref().unwrap().username.eq(&username);
+                let blue_disconnected = self.blue.as_ref().unwrap().username.eq(&username);
+
+                if red_disconnected || blue_disconnected {
+                    println!("{username} disconnected, cancelling game");
+                    self.state = GameState::GameOver;
+                }
             }
         }
+        Ok(())
     }
 
     async fn game_over(&mut self) -> Result<(), GameError> {
+        println!("Game Over");
         Ok(())
     }
 }

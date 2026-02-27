@@ -107,6 +107,7 @@ pub async fn handle_connection(username: String, socket: WebSocket, conn_tx: Con
                 let msg = match serde_json::from_str::<GameMessage>(text) {
                     Ok(m) => m,
                     Err(_) => {
+                        println!("{}", text);
                         let _ = og_tx_2.send(GameMessage::InvalidFormat);
                         continue;
                     }
