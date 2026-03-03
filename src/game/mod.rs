@@ -8,6 +8,8 @@ use crate::game::message::Message;
 
 pub mod message;
 
+// TODO: MASSIVE REFACTOR TO RETURN OUT GAME STATE!
+
 #[derive(Debug)]
 pub enum GameState {
     AwaitingRed,
@@ -28,7 +30,7 @@ pub enum GameError {
 
 #[derive(Debug)]
 pub struct Game {
-    state: GameState,
+    pub state: GameState,
     conn_rx: ConnRx,
     board: Board,
     red: Option<Connection>,
