@@ -1,9 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    connect4::{BoardState, Color, Move, PlayError, Turn},
-    game::Game,
-};
+use crate::connect4::{Color, Move, PlayError};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
