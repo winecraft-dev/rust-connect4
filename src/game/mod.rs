@@ -9,13 +9,24 @@ use crate::game::message::Message;
 pub mod message;
 
 // TODO: MASSIVE REFACTOR TO RETURN OUT GAME STATE!
+//
+// currently, the state has two "modes"... it would be more visible if we split up the "step" function
+// into two discrete functions. The first "lobby" is for collecting enough users to start the game. The second
+// "play" is for stepping the game. In fact, it would be better if those were separate modules with connections
+// funneled from the "lobby" to the "play". But for now, let's take out those two modes and have them be their
+// own function calls. The main loop will move from "lobby" to "play" mode.
 
 #[derive(Debug)]
-pub enum GameState {
-    AwaitingRed,
-    AwaitingBlue,
+pub enum GameStatus {
     Playing,
     GameOver,
+}
+
+#[derive(Debug)]
+pub enum LobbyStatus {
+    AwaitingRed,
+    AwaitingBlue,
+    Ready,
 }
 
 #[derive(Debug, Error)]
@@ -24,13 +35,14 @@ pub enum GameError {
     ConnectionUpdateClosed,
     #[error("a connection closed before notification")]
     ConnectionError,
+    #[error("a player quit the game")]
+    PlayerQuit,
     #[error("state became invalid")]
     WtfState,
 }
 
 #[derive(Debug)]
 pub struct Game {
-    pub state: GameState,
     conn_rx: ConnRx,
     board: Board,
     red: Option<Connection>,
@@ -40,7 +52,6 @@ pub struct Game {
 impl Game {
     pub fn new(conn_rx: ConnRx) -> Self {
         Self {
-            state: GameState::AwaitingRed,
             conn_rx: conn_rx,
             board: Board::new(),
             red: None,
@@ -48,59 +59,39 @@ impl Game {
         }
     }
 
-    pub async fn step(&mut self) -> Result<(), GameError> {
-        match self.state {
-            GameState::AwaitingRed | GameState::AwaitingBlue => self.awaiting_connections().await,
-            GameState::Playing => self.play().await,
-            GameState::GameOver => self.game_over().await,
-        }
-    }
-
-    async fn awaiting_connections(&mut self) -> Result<(), GameError> {
+    pub async fn lobby(&mut self) -> Result<LobbyStatus, GameError> {
         let cu = match self.conn_rx.recv().await {
             None => return Err(GameError::ConnectionUpdateClosed),
             Some(cu) => cu,
         };
-        self.state = match cu {
-            ConnectionUpdate::Connected(conn) => match self.state {
-                GameState::AwaitingRed => {
+        match cu {
+            ConnectionUpdate::Connected(conn) => {
+                if self.red.is_none() {
                     self.red = Some(conn);
-                    GameState::AwaitingBlue
-                }
-                GameState::AwaitingBlue => {
+                    Ok(LobbyStatus::AwaitingBlue)
+                } else {
                     self.blue = Some(conn);
-                    if let Err(_) = self.broadcast(Message::board(&self.board)) {
-                        return Err(GameError::ConnectionError);
-                    };
-                    GameState::Playing
+                    Ok(LobbyStatus::Ready)
                 }
-                _ => return Err(GameError::WtfState),
-            },
-            ConnectionUpdate::Disconnected(u) => match self.state {
-                GameState::AwaitingBlue => {
-                    let red = self.red.as_ref().expect("must exist");
-                    let state = if red.username.eq(&u) {
+            }
+            ConnectionUpdate::Disconnected(username) => {
+                if let Some(red) = self.red.as_ref() {
+                    if red.username.eq(&username) {
                         self.red = None;
-                        GameState::AwaitingRed
+                        Ok(LobbyStatus::AwaitingRed)
                     } else {
-                        GameState::AwaitingBlue
-                    };
-                    state
+                        Ok(LobbyStatus::AwaitingBlue)
+                    }
+                } else {
+                    Err(GameError::WtfState)
                 }
-                _ => return Err(GameError::WtfState),
-            },
-        };
-        println!(
-            "Game Awaiting... Red: {}, Blue: {}",
-            self.red.is_some(),
-            self.blue.is_some()
-        );
-        Ok(())
+            }
+        }
     }
 
     // TODO: every expect should return an error that kills the game loop+program
 
-    async fn play(&mut self) -> Result<(), GameError> {
+    pub async fn play(&mut self) -> Result<GameStatus, GameError> {
         tokio::select! {
             Some(message) = self.red.as_mut().unwrap().recv() => {
                 return self.play_message(Color::Red, message);
@@ -119,7 +110,7 @@ impl Game {
 
     // made this function so I wouldn't have to write code inside that select macro
     // autocompletes are super slow in there
-    fn play_message(&mut self, from: Color, msg: Message) -> Result<(), GameError> {
+    fn play_message(&mut self, from: Color, msg: Message) -> Result<GameStatus, GameError> {
         let conn = match from {
             Color::Red => self.red.as_ref().unwrap(),
             Color::Blue => self.blue.as_ref().unwrap(),
@@ -131,21 +122,31 @@ impl Game {
                 if let Err(_) = conn.send(invalid_message_msg) {
                     return Err(GameError::ConnectionError);
                 }
-                return Ok(());
+                return Ok(GameStatus::Playing);
             }
         };
         match self.board.drop_chip(from, column) {
-            Ok(drop_res) => {
-                let broadcast_msg = match drop_res.state {
-                    BoardState::Turn(_) => Message::moved(&self.board, drop_res.last_move, from),
-                    // transition to game over state!
-                    BoardState::Won(winner) => Message::won(&self.board, winner),
-                    BoardState::Stalemate => Message::stalemate(&self.board),
-                };
-                if let Err(_) = self.broadcast(broadcast_msg) {
-                    return Err(GameError::ConnectionError);
+            Ok(drop_res) => match drop_res.state {
+                BoardState::Turn(_) => {
+                    if let Err(_) =
+                        self.broadcast(Message::moved(&self.board, drop_res.last_move, from))
+                    {
+                        return Err(GameError::ConnectionError);
+                    }
+                } // transition to game over state!
+                BoardState::Won(winner) => {
+                    if let Err(_) = self.broadcast(Message::won(&self.board, winner)) {
+                        return Err(GameError::ConnectionError);
+                    }
+                    return Ok(GameStatus::GameOver);
                 }
-            }
+                BoardState::Stalemate => {
+                    if let Err(_) = self.broadcast(Message::stalemate(&self.board)) {
+                        return Err(GameError::ConnectionError);
+                    }
+                    return Ok(GameStatus::GameOver);
+                }
+            },
             Err(play_err) => {
                 let feedback_msg = match play_err {
                     PlayError::GameOver(winner) => Message::won(&self.board, winner),
@@ -157,7 +158,7 @@ impl Game {
                 }
             }
         };
-        Ok(())
+        Ok(GameStatus::Playing)
     }
 
     fn broadcast(&self, msg: Message) -> Result<(), SendError<Message>> {
@@ -166,7 +167,7 @@ impl Game {
         Ok(())
     }
 
-    fn play_connection_update(&mut self, cu: ConnectionUpdate) -> Result<(), GameError> {
+    fn play_connection_update(&mut self, cu: ConnectionUpdate) -> Result<GameStatus, GameError> {
         match cu {
             ConnectionUpdate::Connected(mut conn) => {
                 if let Err(_) = conn.send(message::Message::TooManyPlayers) {
@@ -180,15 +181,23 @@ impl Game {
 
                 if red_disconnected || blue_disconnected {
                     println!("{username} disconnected, cancelling game");
-                    self.state = GameState::GameOver;
+                    return Err(GameError::PlayerQuit);
                 }
             }
         }
-        Ok(())
+        Ok(GameStatus::Playing)
     }
 
-    async fn game_over(&mut self) -> Result<(), GameError> {
-        println!("Game Over");
-        Ok(())
+    pub async fn game_start(&self) -> Result<(), SendError<Message>> {
+        self.broadcast(Message::board(&self.board))
+    }
+
+    pub async fn game_over(&mut self) {
+        if let Some(red) = self.red.as_mut() {
+            red.close();
+        }
+        if let Some(blue) = self.blue.as_mut() {
+            blue.close();
+        }
     }
 }

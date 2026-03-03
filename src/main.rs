@@ -2,7 +2,10 @@ use game::Game;
 use tokio::sync::mpsc;
 use warp::{Filter, ws};
 
-use crate::connection::{ConnTx, Connection, ConnectionUpdate};
+use crate::{
+    connection::{ConnTx, Connection, ConnectionUpdate},
+    game::{GameError, GameStatus, LobbyStatus},
+};
 
 mod connect4;
 mod connection;
@@ -15,8 +18,34 @@ async fn main() {
 
     tokio::task::spawn(async move {
         loop {
-            game.step().await.expect("Game error, stopping!");
+            let status = match game.lobby().await {
+                Ok(s) => s,
+                Err(e) => panic!("{}", e),
+            };
+            println!("Lobby status: {:?}", status);
+            match status {
+                LobbyStatus::Ready => break,
+                _ => {}
+            }
         }
+        println!("Starting!");
+        let _ = game.game_start().await;
+        loop {
+            let status = match game.play().await {
+                Ok(s) => s,
+                Err(e) => match e {
+                    GameError::PlayerQuit => break,
+                    e => panic!("{}", e),
+                },
+            };
+            println!("Game status: {:?}", status);
+            match status {
+                GameStatus::GameOver => break,
+                _ => {}
+            }
+        }
+        println!("Game over!");
+        game.game_over().await;
     });
 
     routes(ic_tx).await;
