@@ -65,5 +65,6 @@ async fn routes(ic_tx: ConnTx) {
 
     let routes = static_files.or(ws_play);
 
+    println!("Warp serving");
     warp::serve(routes).run(([127, 0, 0, 1], 8080)).await;
 }
