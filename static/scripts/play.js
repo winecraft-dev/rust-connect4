@@ -40,7 +40,10 @@ window.onload = function (e) {
 
   function connect(username) {
     console.log(`Connecting as ${username}...`);
-    socket = new WebSocket(`ws://${window.location.host}/play/${username}`);
+    let protocol = window.location.protocol == "https:" ? "wss" : "ws";
+    socket = new WebSocket(
+      `${protocol}://${window.location.host}/play/${username}`,
+    );
 
     socket.onopen = function (e) {
       connection_status.classList.add("status-online");
