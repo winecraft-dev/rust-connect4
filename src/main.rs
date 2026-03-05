@@ -1,5 +1,7 @@
+use std::{process::exit, time::Duration};
+
 use game::Game;
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, time};
 use warp::{Filter, ws};
 
 use crate::{
@@ -17,6 +19,7 @@ async fn main() {
     let mut game = Game::new(ic_rx);
 
     tokio::task::spawn(async move {
+        println!("Waiting for players...");
         loop {
             let status = match game.lobby().await {
                 Ok(s) => s,
@@ -38,14 +41,17 @@ async fn main() {
                     e => panic!("{}", e),
                 },
             };
-            println!("Game status: {:?}", status);
             match status {
                 GameStatus::GameOver => break,
                 _ => {}
             }
         }
-        println!("Game over!");
+        println!("Game over, kicking in 10s!");
+        time::sleep(Duration::from_secs(10)).await;
+
         game.game_over().await;
+
+        exit(0);
     });
 
     routes(ic_tx).await;
@@ -65,6 +71,5 @@ async fn routes(ic_tx: ConnTx) {
 
     let routes = static_files.or(ws_play);
 
-    println!("Warp serving");
     warp::serve(routes).run(([0, 0, 0, 0], 8080)).await;
 }
