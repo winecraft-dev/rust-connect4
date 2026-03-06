@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::connect4::{Color, Move, PlayError};
+use crate::connect4::{BoardLayout, Color, Move, PlayError};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -13,21 +13,21 @@ pub enum Message {
     // output
     Board {
         turn: Color,
-        board: String,
+        board: BoardLayout,
     },
     Moved {
         last_mover: Color,
         last_move: Move,
-        board: String,
+        board: BoardLayout,
     },
     Won {
         winner: Color,
         last_move: Move,
-        board: String,
+        board: BoardLayout,
     },
     Stalemate {
         last_move: Move,
-        board: String,
+        board: BoardLayout,
     },
     InvalidFormat,
     InvalidMessage,

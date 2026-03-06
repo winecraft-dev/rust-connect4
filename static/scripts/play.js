@@ -3,10 +3,10 @@ window.onload = function (e) {
   let username_field = document.getElementById("username");
   let connection_status = document.getElementById("status");
 
-  let drop_buttons = document.querySelectorAll(".drop-button");
-  console.log(drop_buttons);
+  let board = document.getElementById("board");
+  let chips = generate_chips(board);
 
-  let gameplay_text = document.getElementById("gameplay");
+  let drop_buttons = document.querySelectorAll(".drop-button");
 
   let socket = null;
 
@@ -27,15 +27,12 @@ window.onload = function (e) {
     console.log(`Received message:`);
     console.log(msg);
     if (msg.board != null) {
-      gameplay_text.value = msg.board;
+      display_chips(chips, msg.board);
     }
   }
 
   function buttons_connect(connected) {
     connect_button.disabled = connected;
-    drop_buttons.forEach(function (drop_button) {
-      drop_button.disabled = !connected;
-    });
   }
 
   function connect(username) {
@@ -72,9 +69,10 @@ window.onload = function (e) {
     connect(username);
   });
 
-  drop_buttons.forEach(function (drop_button) {
-    drop_button.addEventListener("click", function (e) {
-      drop_chip(parseInt(e.target.getAttribute("column")));
+  for (const [i, chip] of chips) {
+    chip.addEventListener("click", function (e) {
+      let col = e.target.getAttribute("col");
+      drop_chip(parseInt(col));
     });
-  });
+  }
 };
