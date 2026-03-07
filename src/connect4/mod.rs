@@ -8,8 +8,10 @@ use crate::game::message::Message;
 
 mod test;
 
-const WIDTH: usize = 7;
-const HEIGHT: usize = 6;
+pub const WIDTH: usize = 7;
+pub const HEIGHT: usize = 6;
+
+pub type BoardLayout = [[Option<Color>; HEIGHT]; WIDTH];
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Copy)]
 pub struct Turn {
@@ -26,7 +28,7 @@ pub struct Move {
 
 #[derive(Debug)]
 pub struct Board {
-    chips: [[Option<Color>; HEIGHT]; WIDTH],
+    chips: BoardLayout,
     moves: Turn,
     last_move: Option<Move>,
     state: BoardState,
@@ -68,7 +70,7 @@ impl Message {
         };
         Message::Board {
             turn: turn,
-            board: format!("{}", b),
+            board: b.chips,
         }
     }
 
@@ -76,14 +78,14 @@ impl Message {
         Message::Won {
             winner,
             last_move: b.last_move.unwrap(),
-            board: format!("{}", b),
+            board: b.chips,
         }
     }
 
     pub fn stalemate(b: &Board) -> Self {
         Message::Stalemate {
             last_move: b.last_move.unwrap(),
-            board: format!("{}", b),
+            board: b.chips,
         }
     }
 
@@ -91,7 +93,7 @@ impl Message {
         Message::Moved {
             last_mover: mover,
             last_move: last_move,
-            board: format!("{}", b),
+            board: b.chips,
         }
     }
 }

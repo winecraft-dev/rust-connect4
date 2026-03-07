@@ -21,12 +21,31 @@ body {
 
 .status {
     display: inline-block;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
+    border-radius: 5px;
+    padding: 5px;
     background-color: red;
 }
 
-.status-online {
-    background-color: green;
+.board {
+    background-color: gray;
+    padding: 5px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr 1fr;
+    grid-template-rows: 1fr 1fr 1fr 1fr 1fr 1fr;
+}
+
+.chip {
+    margin: 10px;
+    width: 40px;
+    height: 40px;
+    background-color: white;
+    border-radius: 20px;
+}
+
+.chip-red {
+    background-color: red;
+}
+
+.chip-blue {
+    background-color: blue;
 }
