@@ -1,57 +1,28 @@
-use std::{process::exit, time::Duration};
-
-use game::Game;
-use tokio::{sync::mpsc, time};
+use tokio::sync::mpsc;
 use warp::{Filter, ws};
 
 use crate::{
     connection::{ConnTx, Connection, ConnectionUpdate},
-    game::{GameError, GameStatus, LobbyStatus},
+    lobby::Lobby,
 };
 
 mod connect4;
 mod connection;
 mod game;
+mod lobby;
 
 #[tokio::main]
 async fn main() {
     let (ic_tx, ic_rx) = mpsc::unbounded_channel::<ConnectionUpdate>();
-    let mut game = Game::new(ic_rx);
+    let mut lobby = Lobby::new(ic_rx);
 
     tokio::task::spawn(async move {
-        println!("Waiting for players...");
         loop {
-            let status = match game.lobby().await {
-                Ok(s) => s,
+            match lobby.lobby().await {
+                Ok(_) => {}
                 Err(e) => panic!("{}", e),
             };
-            println!("Lobby status: {:?}", status);
-            match status {
-                LobbyStatus::Ready => break,
-                _ => {}
-            }
         }
-        println!("Starting!");
-        let _ = game.game_start().await;
-        loop {
-            let status = match game.play().await {
-                Ok(s) => s,
-                Err(e) => match e {
-                    GameError::PlayerQuit => break,
-                    e => panic!("{}", e),
-                },
-            };
-            match status {
-                GameStatus::GameOver => break,
-                _ => {}
-            }
-        }
-        println!("Game over, kicking in 10s!");
-        time::sleep(Duration::from_secs(10)).await;
-
-        game.game_over().await;
-
-        exit(0);
     });
 
     routes(ic_tx).await;
