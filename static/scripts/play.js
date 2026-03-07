@@ -1,7 +1,7 @@
 window.onload = function (e) {
   let connect_button = document.getElementById("connect");
   let username_field = document.getElementById("username");
-  let connection_status = document.getElementById("status");
+  let status = document.getElementById("status");
 
   let board = document.getElementById("board");
   let chips = generate_chips(board);
@@ -29,10 +29,50 @@ window.onload = function (e) {
     if (msg.board != null) {
       display_chips(chips, msg.board);
     }
+    if (msg.turn != null) {
+      status_turn(msg.turn);
+    } else if (msg.last_mover != null) {
+      if (msg.last_mover == "Red") {
+        status_turn("Blue");
+      } else {
+        status_turn("Red");
+      }
+    } else if (msg.winner != null) {
+      status_win(msg.winner);
+    } else if (msg.type == "Stalemate") {
+      status_win(null);
+    }
   }
 
   function buttons_connect(connected) {
     connect_button.disabled = connected;
+  }
+
+  function status_disconnected() {
+    status.style.backgroundColor = "yellow";
+    status.innerHTML = "Disconnected";
+  }
+
+  function status_waiting() {
+    status.style.backgroundColor = "green";
+    status.innerHTML = "Waiting...";
+  }
+
+  function status_turn(color) {
+    if (color == "Red") status.style.backgroundColor = "red";
+    else if (color == "Blue") status.style.backgroundColor = "blue";
+    status.innerHTML = "Player Turn";
+  }
+
+  function status_win(color) {
+    if (color == null) {
+      status.style.backgroundColor = "gray";
+      status.innerHTML = "Stalemate";
+      return;
+    }
+    if (color == "Red") status.style.backgroundColor = "red";
+    else if (color == "Blue") status.style.backgroundColor = "blue";
+    status.innerHTML = "Winner";
   }
 
   function connect(username) {
@@ -43,7 +83,7 @@ window.onload = function (e) {
     );
 
     socket.onopen = function (e) {
-      connection_status.classList.add("status-online");
+      status_waiting();
       buttons_connect(true);
       console.log("Connected!");
     };
@@ -54,9 +94,10 @@ window.onload = function (e) {
     };
 
     socket.onclose = function (e) {
-      connection_status.classList.remove("status-online");
       console.log("Disconnected");
+      status_disconnected();
       buttons_connect(false);
+      socket = null;
     };
 
     socket.onerror = function (e) {
@@ -75,4 +116,6 @@ window.onload = function (e) {
       drop_chip(parseInt(col));
     });
   }
+
+  status_disconnected();
 };

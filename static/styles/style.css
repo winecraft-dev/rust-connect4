@@ -21,14 +21,9 @@ body {
 
 .status {
     display: inline-block;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
+    border-radius: 5px;
+    padding: 5px;
     background-color: red;
-}
-
-.status-online {
-    background-color: green;
 }
 
 .board {
