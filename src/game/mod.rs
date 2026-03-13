@@ -26,6 +26,7 @@ pub enum GameError {
 
 #[derive(Debug)]
 pub struct Game {
+    id: usize,
     board: Board,
     cancel: CancellationToken,
     red: Connection,
@@ -33,8 +34,9 @@ pub struct Game {
 }
 
 impl Game {
-    pub fn new(cancel: CancellationToken, red: Connection, blue: Connection) -> Self {
+    pub fn new(id: usize, cancel: CancellationToken, red: Connection, blue: Connection) -> Self {
         Self {
+            id,
             board: Board::new(),
             cancel,
             red,
@@ -59,6 +61,10 @@ impl Game {
                 return Err(GameError::GameCancelled);
             }
         }
+    }
+
+    pub fn id(&self) -> usize {
+        self.id
     }
 
     // made this function so I wouldn't have to write code inside that select macro
