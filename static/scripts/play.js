@@ -95,10 +95,12 @@ window.onload = function (e) {
 
     socket.onclose = function (e) {
       console.log("Disconnected");
-      status_disconnected();
-      buttons_connect(false);
-      clear_chips(chips);
-      socket = null;
+      setTimeout(function () {
+        status_disconnected();
+        buttons_connect(false);
+        clear_chips(chips);
+        socket = null;
+      }, 5000);
     };
 
     socket.onerror = function (e) {

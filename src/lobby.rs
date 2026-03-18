@@ -79,12 +79,14 @@ impl Lobby {
                 let username = conn.username.clone();
                 if self.connecting.contains_key(&username) || self.playing.contains_key(&username) {
                     let _ = conn.send(Message::RepeatUsername);
-                    conn.close();
-                    // MASSIVE BUG! USING REPEAT USERNAMES WILL TRIGGER DISCONNECTED BLOCK
-                    // BELOW. USERS CAN CAUSE OTHERS TO BE KICKED
+                    println!(
+                        "[Lobby] Player \"{}\" attempted to connect with repeat username",
+                        &username
+                    );
+                    conn.decline();
                     return Ok(());
                 }
-
+                conn.accept();
                 println!("[Lobby] Player \"{}\" connecting", &username);
                 self.connecting.insert(username, conn);
                 let mc = match self.matchmake() {

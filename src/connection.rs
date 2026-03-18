@@ -1,5 +1,8 @@
 use futures_util::{SinkExt, StreamExt};
-use tokio::sync::mpsc::{self, error::SendError};
+use tokio::sync::{
+    mpsc::{self, error::SendError},
+    oneshot,
+};
 
 use crate::game::message::Message as GameMessage;
 use tokio_util::sync::CancellationToken;
@@ -17,7 +20,8 @@ pub enum ConnectionUpdate {
 #[derive(Debug)]
 pub struct Connection {
     pub username: String,
-    token: CancellationToken,
+    accept_tx: Option<oneshot::Sender<bool>>,
+    close_token: CancellationToken,
     rx: mpsc::UnboundedReceiver<GameMessage>,
     tx: mpsc::UnboundedSender<GameMessage>,
 }
@@ -32,20 +36,35 @@ impl Connection {
     }
 
     pub fn close(&mut self) {
-        self.token.cancel();
+        self.close_token.cancel();
+    }
+
+    pub fn decline(&mut self) {
+        if let Some(tx) = self.accept_tx.take() {
+            let _ = tx.send(false);
+        }
+        self.close_token.cancel();
+    }
+
+    pub fn accept(&mut self) {
+        if let Some(tx) = self.accept_tx.take() {
+            let _ = tx.send(true);
+        }
     }
 }
 
 pub async fn handle_connection(username: String, socket: WebSocket, conn_tx: ConnTx) {
     let (im_tx, im_rx) = mpsc::unbounded_channel::<GameMessage>();
     let (og_tx, mut og_rx) = mpsc::unbounded_channel::<GameMessage>();
-    let token = CancellationToken::new();
+    let close_token = CancellationToken::new();
+    let (accept_tx, accept_rx) = oneshot::channel::<bool>();
 
     let og_tx_2 = og_tx.clone();
 
     let conn = Connection {
         username: username.clone(),
-        token: token.clone(),
+        accept_tx: Some(accept_tx),
+        close_token: close_token.clone(),
         rx: im_rx,
         tx: og_tx,
     };
@@ -59,7 +78,7 @@ pub async fn handle_connection(username: String, socket: WebSocket, conn_tx: Con
 
     let (mut ws_tx, mut ws_rx) = socket.split();
 
-    let og_token = token.clone();
+    let og_token = close_token.clone();
     tokio::task::spawn(async move {
         loop {
             tokio::select! {
@@ -87,7 +106,7 @@ pub async fn handle_connection(username: String, socket: WebSocket, conn_tx: Con
         // println!("Outgoing Messages loop cancelled");
     });
 
-    let im_token = token.child_token();
+    let im_token = close_token.child_token();
     loop {
         tokio::select! {
             Some(result) = ws_rx.next() => {
@@ -126,6 +145,8 @@ pub async fn handle_connection(username: String, socket: WebSocket, conn_tx: Con
     }
     // println!("Incoming Messages loop cancelled");
 
-    token.cancel();
-    let _ = conn_tx.send(ConnectionUpdate::Disconnected(username));
+    close_token.cancel();
+    if let Ok(true) = accept_rx.await {
+        let _ = conn_tx.send(ConnectionUpdate::Disconnected(username));
+    }
 }
