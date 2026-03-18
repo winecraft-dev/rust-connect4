@@ -1,8 +1,8 @@
-use std::{collections::HashMap, time::Duration};
+use std::collections::HashMap;
 
 use rand::random_bool;
 use thiserror::Error;
-use tokio::{sync::mpsc, time::sleep};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -79,12 +79,14 @@ impl Lobby {
                 let username = conn.username.clone();
                 if self.connecting.contains_key(&username) || self.playing.contains_key(&username) {
                     let _ = conn.send(Message::RepeatUsername);
-                    conn.close();
-                    // MASSIVE BUG! USING REPEAT USERNAMES WILL TRIGGER DISCONNECTED BLOCK
-                    // BELOW. USERS CAN CAUSE OTHERS TO BE KICKED
+                    println!(
+                        "[Lobby] Player \"{}\" attempted to connect with repeat username",
+                        &username
+                    );
+                    conn.decline();
                     return Ok(());
                 }
-
+                conn.accept();
                 println!("[Lobby] Player \"{}\" connecting", &username);
                 self.connecting.insert(username, conn);
                 let mc = match self.matchmake() {
@@ -190,8 +192,12 @@ async fn gameplay(mut game: Game, mo: MatchOver, over_tx: MatchOverTx) {
         match game.play().await {
             Ok(status) => match status {
                 GameStatus::Playing => {}
-                GameStatus::GameOver => {
-                    println!("[Game {}] Game over", game.id());
+                GameStatus::GameWon(winner) => {
+                    println!("[Game {}] \"{}\" won", game.id(), winner);
+                    break;
+                }
+                GameStatus::Stalemate => {
+                    println!("[Game {}] Ended in stalemate", game.id());
                     break;
                 }
             },
@@ -201,7 +207,7 @@ async fn gameplay(mut game: Game, mo: MatchOver, over_tx: MatchOverTx) {
             }
         }
     }
-    sleep(Duration::from_secs(3)).await;
+    // sleep(Duration::from_secs(3)).await;
     let _ = over_tx.send(mo);
-    let _ = game.game_over();
+    game.game_over();
 }
