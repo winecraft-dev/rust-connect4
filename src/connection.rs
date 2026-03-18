@@ -75,15 +75,15 @@ pub async fn handle_connection(username: String, socket: WebSocket, conn_tx: Con
                             continue;
                         }
                     };
-                    if let Err(e) = ws_tx.send(WsMessage::text(text)).await {
-                        eprintln!("websocket send error: {}", e);
+                    if let Err(_) = ws_tx.send(WsMessage::text(text)).await {
+                        // eprintln!("websocket send error: {}", e);
                         og_token.cancel();
                         break;
                     };
                 }
             }
         }
-        println!("Outgoing Messages loop cancelled");
+        // println!("Outgoing Messages loop cancelled");
     });
 
     let im_token = token.child_token();
@@ -92,8 +92,8 @@ pub async fn handle_connection(username: String, socket: WebSocket, conn_tx: Con
             Some(result) = ws_rx.next() => {
                 let raw_msg = match result {
                     Ok(m) => m,
-                    Err(e) => {
-                        eprintln!("websocket receive error: {}", e);
+                    Err(_) => {
+                        // eprintln!("websocket receive error: {}", e);
                         break;
                     }
                 };
@@ -107,7 +107,7 @@ pub async fn handle_connection(username: String, socket: WebSocket, conn_tx: Con
                 let msg = match serde_json::from_str::<GameMessage>(text) {
                     Ok(m) => m,
                     Err(_) => {
-                        println!("{}", text);
+                        // println!("{}", text);
                         let _ = og_tx_2.send(GameMessage::InvalidFormat);
                         continue;
                     }
@@ -123,7 +123,7 @@ pub async fn handle_connection(username: String, socket: WebSocket, conn_tx: Con
             }
         }
     }
-    println!("Incoming Messages loop cancelled");
+    // println!("Incoming Messages loop cancelled");
 
     token.cancel();
     let _ = conn_tx.send(ConnectionUpdate::Disconnected(username));

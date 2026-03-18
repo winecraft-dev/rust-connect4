@@ -97,6 +97,7 @@ window.onload = function (e) {
       console.log("Disconnected");
       status_disconnected();
       buttons_connect(false);
+      clear_chips(chips);
       socket = null;
     };
 
