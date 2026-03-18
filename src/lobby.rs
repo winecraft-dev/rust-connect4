@@ -1,8 +1,8 @@
-use std::{collections::HashMap, time::Duration};
+use std::collections::HashMap;
 
 use rand::random_bool;
 use thiserror::Error;
-use tokio::{sync::mpsc, time::sleep};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -190,8 +190,12 @@ async fn gameplay(mut game: Game, mo: MatchOver, over_tx: MatchOverTx) {
         match game.play().await {
             Ok(status) => match status {
                 GameStatus::Playing => {}
-                GameStatus::GameOver => {
-                    println!("[Game {}] Game over", game.id());
+                GameStatus::GameWon(winner) => {
+                    println!("[Game {}] \"{}\" won", game.id(), winner);
+                    break;
+                }
+                GameStatus::Stalemate => {
+                    println!("[Game {}] Ended in stalemate", game.id());
                     break;
                 }
             },
@@ -201,7 +205,7 @@ async fn gameplay(mut game: Game, mo: MatchOver, over_tx: MatchOverTx) {
             }
         }
     }
-    sleep(Duration::from_secs(3)).await;
+    // sleep(Duration::from_secs(3)).await;
     let _ = over_tx.send(mo);
-    let _ = game.game_over();
+    game.game_over();
 }

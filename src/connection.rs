@@ -63,10 +63,7 @@ pub async fn handle_connection(username: String, socket: WebSocket, conn_tx: Con
     tokio::task::spawn(async move {
         loop {
             tokio::select! {
-                _ = og_token.cancelled() => {
-                    let _ = ws_tx.close().await;
-                    break;
-                }
+                biased;
                 Some(message) = og_rx.recv() => {
                     let text = match serde_json::to_string(&message) {
                         Ok(t) => t,
@@ -80,6 +77,10 @@ pub async fn handle_connection(username: String, socket: WebSocket, conn_tx: Con
                         og_token.cancel();
                         break;
                     };
+                }
+                _ = og_token.cancelled() => {
+                    let _ = ws_tx.close().await;
+                    break;
                 }
             }
         }

@@ -11,7 +11,8 @@ pub mod message;
 #[derive(Debug)]
 pub enum GameStatus {
     Playing,
-    GameOver,
+    GameWon(String),
+    Stalemate,
 }
 
 #[derive(Debug, Error)]
@@ -96,13 +97,17 @@ impl Game {
                     if let Err(_) = self.broadcast(Message::won(&self.board, winner)) {
                         return Err(GameError::ConnectionError);
                     }
-                    return Ok(GameStatus::GameOver);
+                    let w_username = match winner {
+                        Color::Red => self.red.username.clone(),
+                        Color::Blue => self.blue.username.clone(),
+                    };
+                    return Ok(GameStatus::GameWon(w_username));
                 }
                 BoardState::Stalemate => {
                     if let Err(_) = self.broadcast(Message::stalemate(&self.board)) {
                         return Err(GameError::ConnectionError);
                     }
-                    return Ok(GameStatus::GameOver);
+                    return Ok(GameStatus::Stalemate);
                 }
             },
             Err(play_err) => {
