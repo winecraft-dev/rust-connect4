@@ -1,80 +1,129 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use rand::random_bool;
 use thiserror::Error;
+use tokio::{sync::mpsc, time::sleep};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
     connection::{ConnRx, Connection, ConnectionUpdate},
-    game::{Game, GameStatus},
+    game::{Game, GameStatus, message::Message},
 };
 
 #[derive(Debug, Error)]
 pub enum LobbyError {
-    #[error("new connections stopped")]
-    ConnectionUpdateClosed,
+    // fatal
+    #[error("channels were closed prematurely")]
+    ChannelsClosed,
+    #[error("match id is missing")]
+    MissingMatchID,
 }
 
 #[derive(Debug)]
 pub struct Lobby {
     conn_rx: ConnRx,
     connecting: HashMap<String, Connection>,
+    playing: HashMap<String, usize>,
 
+    over_tx: MatchOverTx,
+    over_rx: MatchOverRx,
     game_counter: usize,
-    player_games: HashMap<String, usize>,
-    games: HashMap<usize, CancellationToken>,
+    matches: HashMap<usize, CancellationToken>,
 }
 
-struct Match {
+struct MatchCandidate {
     red: Connection,
     blue: Connection,
 }
 
+#[derive(Debug)]
+struct MatchOver {
+    id: usize,
+    red: String,
+    blue: String,
+}
+
+type MatchOverTx = mpsc::UnboundedSender<MatchOver>;
+type MatchOverRx = mpsc::UnboundedReceiver<MatchOver>;
+
 impl Lobby {
     pub fn new(conn_rx: ConnRx) -> Self {
+        let (over_tx, over_rx) = mpsc::unbounded_channel::<MatchOver>();
         Self {
             conn_rx,
             connecting: HashMap::new(),
+            playing: HashMap::new(),
 
+            over_tx,
+            over_rx,
             game_counter: 0,
-            player_games: HashMap::new(),
-            games: HashMap::new(),
+            matches: HashMap::new(),
         }
     }
 
     pub async fn lobby(&mut self) -> Result<(), LobbyError> {
-        let cu = match self.conn_rx.recv().await {
-            None => return Err(LobbyError::ConnectionUpdateClosed),
-            Some(cu) => cu,
-        };
+        tokio::select! {
+            Some(mo) = self.over_rx.recv() => {
+                return self.game_finished(mo).await;
+            }
+            Some(cu) = self.conn_rx.recv() => {
+                return self.player_connection(cu).await;
+            }
+            else => return Err(LobbyError::ChannelsClosed)
+        }
+    }
+
+    async fn player_connection(&mut self, cu: ConnectionUpdate) -> Result<(), LobbyError> {
         match cu {
-            ConnectionUpdate::Connected(conn) => {
+            ConnectionUpdate::Connected(mut conn) => {
                 let username = conn.username.clone();
+                if self.connecting.contains_key(&username) || self.playing.contains_key(&username) {
+                    let _ = conn.send(Message::RepeatUsername);
+                    conn.close();
+                    // MASSIVE BUG! USING REPEAT USERNAMES WILL TRIGGER DISCONNECTED BLOCK
+                    // BELOW. USERS CAN CAUSE OTHERS TO BE KICKED
+                    return Ok(());
+                }
+
                 println!("[Lobby] Player \"{}\" connecting", &username);
                 self.connecting.insert(username, conn);
-                let mmatch = match self.matchmake() {
-                    Some(m) => m,
+                let mc = match self.matchmake() {
+                    Some(mc) => mc,
                     None => return Ok(()),
                 };
-                self.start_match(mmatch);
+                self.start_match(mc);
             }
             ConnectionUpdate::Disconnected(username) => {
                 if let Some(_) = self.connecting.remove(&username) {
                     println!("[Lobby] Player \"{}\" disconnected", username);
                 }
-                if let Some(game_id) = self.player_games.remove(&username) {
-                    println!(
-                        "[Lobby] Player \"{}\" disconnected from Game \"{}\", cancelling...",
-                        &username, game_id,
-                    );
-                }
+                let game_id = match self.playing.get(&username) {
+                    Some(id) => id,
+                    None => return Ok(()),
+                };
+                println!(
+                    "[Lobby] Player \"{}\" disconnected from Game \"{}\", cancelling...",
+                    &username, game_id,
+                );
+                let Some(cancel_token) = self.matches.get(game_id) else {
+                    return Err(LobbyError::MissingMatchID);
+                };
+                cancel_token.cancel();
             }
         }
 
         Ok(())
     }
 
-    fn matchmake(&mut self) -> Option<Match> {
+    async fn game_finished(&mut self, mo: MatchOver) -> Result<(), LobbyError> {
+        println!("[Lobby] Game \"{}\" is over", mo.id);
+        let _ = self.playing.remove(&mo.red);
+        let _ = self.playing.remove(&mo.blue);
+        let _ = self.matches.remove(&mo.id);
+        Ok(())
+    }
+
+    fn matchmake(&mut self) -> Option<MatchCandidate> {
         let mut usernames = self.connecting.keys().cloned();
         let u1 = usernames.next();
         let u2 = usernames.next();
@@ -93,51 +142,66 @@ impl Lobby {
             false => (c2, c1),
         };
 
-        return Some(Match { red, blue });
+        Some(MatchCandidate { red, blue })
     }
 
-    fn start_match(&mut self, m: Match) {
-        let game_id = self.game_counter;
+    fn start_match(&mut self, mc: MatchCandidate) {
+        let id = self.game_counter;
+        let cancel_token = CancellationToken::new();
+        let red_username = mc.red.username.clone();
+        let blue_username = mc.blue.username.clone();
+
+        // Game manages connections
+        // MatchOver is just the msg used by the game thread to signal lobby thread
+        let game = Game::new(id, cancel_token.child_token(), mc.red, mc.blue);
+        let mo = MatchOver {
+            id,
+            red: red_username.clone(),
+            blue: blue_username.clone(),
+        };
+
+        self.playing.insert(red_username.clone(), id);
+        self.playing.insert(blue_username.clone(), id);
+        self.matches.insert(id, cancel_token);
         self.game_counter += 1;
 
-        let red_username = m.red.username.clone();
-        let blue_username = m.blue.username.clone();
-
-        let cancel_token = CancellationToken::new();
-        let game = Game::new(game_id, cancel_token.child_token(), m.red, m.blue);
-
-        self.player_games.insert(red_username.clone(), game_id);
-        self.player_games.insert(blue_username.clone(), game_id);
-        self.games.insert(game_id, cancel_token);
-
-        tokio::task::spawn(async move { gameplay(game).await });
+        let over_tx = self.over_tx.clone();
+        tokio::task::spawn(async move { gameplay(game, mo, over_tx).await });
 
         println!(
             "[Lobby] Starting Game \"{}\"; Red: \"{}\", Blue: \"{}\"",
-            game_id, red_username, blue_username
+            id, red_username, blue_username
         );
     }
 }
 
-async fn gameplay(mut game: Game) {
-    let e = game.game_start().await;
-    println!("Test {e:?}");
+// we need a channel to back feed the lobby with Gameplay Results
+async fn gameplay(mut game: Game, mo: MatchOver, over_tx: MatchOverTx) {
+    match game.game_start().await {
+        Err(e) => {
+            println!("[Game {}] Failed to start, ending game: {}", game.id(), e);
+            game.game_over();
+            let _ = over_tx.send(mo);
+            return;
+        }
+        Ok(()) => {}
+    }
     loop {
         match game.play().await {
             Ok(status) => match status {
-                GameStatus::Playing => {
-                    println!("Playing")
-                }
+                GameStatus::Playing => {}
                 GameStatus::GameOver => {
+                    println!("[Game {}] Game over", game.id());
                     break;
                 }
             },
             Err(e) => {
-                println!("{e}");
+                println!("[Game {}] Error: {}", game.id(), e);
                 break;
             }
         }
     }
+    sleep(Duration::from_secs(3)).await;
+    let _ = over_tx.send(mo);
     let _ = game.game_over();
-    println!("Game over");
 }

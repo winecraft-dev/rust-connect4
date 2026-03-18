@@ -11,6 +11,11 @@ pub enum Message {
     },
 
     // output
+    Welcome {
+        your_username: String,
+        your_color: Color,
+        opponent_username: String,
+    },
     Board {
         turn: Color,
         board: BoardLayout,
@@ -29,9 +34,10 @@ pub enum Message {
         last_move: Move,
         board: BoardLayout,
     },
+    RepeatUsername,
     InvalidFormat,
     InvalidMessage,
     InvalidMove(PlayError),
 
-    TooManyPlayers,
+    TooManyPlayers, // not necessary >:)
 }

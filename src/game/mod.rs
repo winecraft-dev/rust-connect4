@@ -16,12 +16,11 @@ pub enum GameStatus {
 
 #[derive(Debug, Error)]
 pub enum GameError {
+    // fatal
     #[error("a connection closed before notification")]
     ConnectionError,
     #[error("the game was cancelled")]
     GameCancelled,
-    #[error("state became invalid")]
-    WtfState,
 }
 
 #[derive(Debug)]
@@ -127,10 +126,20 @@ impl Game {
     }
 
     pub async fn game_start(&self) -> Result<(), SendError<Message>> {
+        self.red.send(Message::Welcome {
+            your_username: self.red.username.clone(),
+            your_color: Color::Red,
+            opponent_username: self.blue.username.clone(),
+        })?;
+        self.blue.send(Message::Welcome {
+            your_username: self.blue.username.clone(),
+            your_color: Color::Blue,
+            opponent_username: self.red.username.clone(),
+        })?;
         self.broadcast(Message::board(&self.board))
     }
 
-    pub async fn game_over(&mut self) {
+    pub fn game_over(&mut self) {
         self.red.close();
         self.blue.close();
     }

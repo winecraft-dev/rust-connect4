@@ -30,3 +30,10 @@ function display_chips(chips, board_layout) {
     }
   }
 }
+
+function clear_chips(chips) {
+  for (const [i, chip] of chips) {
+    chip.classList.remove("chip-red");
+    chip.classList.remove("chip-blue");
+  }
+}

@@ -75,7 +75,7 @@ pub async fn handle_connection(username: String, socket: WebSocket, conn_tx: Con
                             continue;
                         }
                     };
-                    if let Err(e) = ws_tx.send(WsMessage::text(text)).await {
+                    if let Err(_) = ws_tx.send(WsMessage::text(text)).await {
                         // eprintln!("websocket send error: {}", e);
                         og_token.cancel();
                         break;
@@ -92,7 +92,7 @@ pub async fn handle_connection(username: String, socket: WebSocket, conn_tx: Con
             Some(result) = ws_rx.next() => {
                 let raw_msg = match result {
                     Ok(m) => m,
-                    Err(e) => {
+                    Err(_) => {
                         // eprintln!("websocket receive error: {}", e);
                         break;
                     }
