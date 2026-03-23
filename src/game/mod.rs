@@ -131,12 +131,12 @@ impl Game {
     }
 
     pub async fn game_start(&self) -> Result<(), SendError<Message>> {
-        self.red.send(Message::Welcome {
+        self.red.send(Message::MatchMade {
             your_username: self.red.username.clone(),
             your_color: Color::Red,
             opponent_username: self.blue.username.clone(),
         })?;
-        self.blue.send(Message::Welcome {
+        self.blue.send(Message::MatchMade {
             your_username: self.blue.username.clone(),
             your_color: Color::Blue,
             opponent_username: self.red.username.clone(),

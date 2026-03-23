@@ -11,7 +11,7 @@ pub enum Message {
     },
 
     // output
-    Welcome {
+    MatchMade {
         your_username: String,
         your_color: Color,
         opponent_username: String,
